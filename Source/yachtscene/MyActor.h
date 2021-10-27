@@ -15,18 +15,25 @@ public:
 	// Sets default values for this actor's properties
 	AMyActor();
 
-	virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	UFUNCTION(BlueprintCallable)
+	void StartRecord();
+	UFUNCTION(BlueprintCallable)
+	void StopRecord();
+	UFUNCTION(BlueprintCallable)
+	void PlayRecord();
 
 protected:
-	UPROPERTY(EditAnywhere)
+	bool bStarted = false;
+	bool bPlaying = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<AActor*> Dice;
 
 	UPROPERTY(EditAnywhere)
 	FString FileName;
 
-	using TransformType = TPair<float, FTransform>;
-	TArray<TArray<TransformType>> Transforms;
+	using TransformType = TPair<float, TArray<FTransform>>;
+	TArray<TransformType> Transforms;
 
 	float Elapsed = 0.f;
 
