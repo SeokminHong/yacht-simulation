@@ -40,39 +40,20 @@ void AMyActor::StopRecord()
 {
 	bStarted = false;
 
-	TArray<FRotator> Offsets;
+	/**
+	 *   R   P
+	 *   0   0 => 1
+	 * -90   0 => 2
+	 *   x  90 => 3
+	 *   x -90 => 4
+	 *  90   0 => 5
+	 * 180   0 => 6
+	 */
+	TArray<FQuat> Offsets;
 	for (auto* d : Dice)
 	{
 		FRotator Rot = d->GetActorRotation();
-		if (FMath::IsNearlyEqual(Rot.Roll, -90.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
-		{
-			Offsets.Emplace(FRotator{ 0.f, 0.f, -90.f }.GetInverse());
-			//UE_LOG(LogClass, Log, TEXT("%s: 2"), *d->GetName());
-		}
-		else if (FMath::IsNearlyEqual(Rot.Pitch, 90.f, 5.f))
-		{
-			Offsets.Emplace(FRotator{ 90.f, 0.f, 0.f }.GetInverse());
-			//UE_LOG(LogClass, Log, TEXT("%s: 3"), *d->GetName());
-		}
-		else if (FMath::IsNearlyEqual(Rot.Pitch, -90.f, 5.f))
-		{
-			Offsets.Emplace(FRotator{ -90.f, 0.f, 0.f }.GetInverse());
-			//UE_LOG(LogClass, Log, TEXT("%s: 4"), *d->GetName());
-		}
-		else if (FMath::IsNearlyEqual(Rot.Roll, 90.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
-		{
-			Offsets.Emplace(FRotator{ 0.f, 0.f, 90.f }.GetInverse());
-			//UE_LOG(LogClass, Log, TEXT("%s: 5"), *d->GetName());
-		}
-		else if (FMath::IsNearlyEqual(FMath::Abs(Rot.Roll), 180.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
-		{
-			Offsets.Emplace(FRotator{ 0.f, 0.f, 180.f }.GetInverse());
-			//UE_LOG(LogClass, Log, TEXT("%s: 6"), *d->GetName());
-		}
-		else
-		{
-			Offsets.Emplace(FRotator::ZeroRotator);
-		}
+		Offsets.Emplace(FRotator{ 0.f, Rot.Yaw, 0.f }.Quaternion() * Rot.Quaternion().Inverse());
 	}
 
 	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
@@ -92,25 +73,14 @@ void AMyActor::StopRecord()
 		{
 			TSharedPtr<FJsonObject> tfObj = MakeShareable(new FJsonObject());
 			FVector Loc = x.GetLocation();
-			FRotator Rot = (Offsets[i].Quaternion() * x.GetRotation()).Rotator();
+			FRotator Rot = (Offsets[i] * x.GetRotation()).Rotator();
 			tfObj->SetNumberField(TEXT("x"), Loc.X);
 			tfObj->SetNumberField(TEXT("y"), Loc.Y);
 			tfObj->SetNumberField(TEXT("z"), Loc.Z);
 			tfObj->SetNumberField(TEXT("rol"), Rot.Roll);
 			tfObj->SetNumberField(TEXT("pit"), Rot.Pitch);
 			tfObj->SetNumberField(TEXT("yaw"), Rot.Yaw);
-			// AActor* d = Dice[i];
-			/**
-			 *   R   P   Y
-			 *   0   0   x => 1
-			 * -90   0   x => 2
-			 *   x  90   x => 3
-			 *   x -90   x => 4
-			 *  90   0   x => 5
-			 * 180   0   x => 6
-			 */
 			
-			// UE_LOG(LogClass, Log, TEXT("%s - %s"), *d->GetName(), *d->GetActorRotation().ToString());
 			a.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(tfObj))));
 			i++;
 		}
@@ -157,6 +127,7 @@ void AMyActor::PlayRecord()
 	{
 		Cast<UPrimitiveComponent>(d->GetRootComponent())->SetSimulatePhysics(false);
 	}
+	ReaderArchive->Close();
 }
 
 // Called every frame
