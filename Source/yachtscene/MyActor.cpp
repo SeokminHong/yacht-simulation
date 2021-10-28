@@ -19,23 +19,6 @@ AMyActor::AMyActor()
 // Called when the game starts or when spawned
 void AMyActor::StartRecord()
 {
-	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
-	auto Writer = TJsonWriter<TCHAR>::Create(WriterArchive);
-	TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create("[{\"time\":0.12}, {}, {}]");
-	TSharedPtr<FJsonValue> JsonValue = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
-	FJsonSerializer::Deserialize(Reader, JsonValue);
-	FJsonSerializer::Serialize(JsonValue->AsArray(), Writer);
-	Writer->Close();
-	delete WriterArchive;
-	//for (auto&& v : JsonValue->Values)
-	//{
-	//	UE_LOG(LogClass, Log, TEXT("Obj Valid: %s"), *v.Key);
-	//}
-	auto arr = JsonValue->AsArray();
-	UE_LOG(LogClass, Log, TEXT("Len: %d"), arr.Num())
-	auto obj = arr[0]->AsObject();
-	float time = obj->GetNumberField("time");
-	UE_LOG(LogClass, Log, TEXT("Read Time: %f"), time)
 	if (bStarted)
 	{
 		return;
@@ -45,25 +28,40 @@ void AMyActor::StartRecord()
 	TArray<FTransform> v;
 	for (AActor* d : Dice)
 	{
+		Cast<UPrimitiveComponent>(d->GetRootComponent())->SetSimulatePhysics(true);
 		v.Emplace(d->GetActorTransform());
 	}
 	Transforms.Emplace(Elapsed, MoveTemp(v));
 	bStarted = true;
+	bPlaying = false;
 }
 
 void AMyActor::StopRecord()
 {
 	bStarted = false;
-	TArray<FString> Output;
-	Output.Emplace(TEXT("["));
+	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
+	auto Writer = TJsonWriter<TCHAR>::Create(WriterArchive);
+	TSharedPtr<FJsonValueArray> root = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
+	auto r = root->AsArray();
 
 	UE_LOG(LogClass, Log, TEXT("End Game!"));
-	for (int i = 0; i < 5; i++)
+	for (TransformType& t : Transforms)
 	{
-		TransformType& t = Transforms[i];
-		FString v = FString::Printf(TEXT("{\"elapsed\":%f,["), t.Key);
+		TSharedPtr<FJsonObject> o = MakeShareable(new FJsonObject());
+		o->SetNumberField(TEXT("time"), t.Key);
+		TSharedPtr<FJsonValueArray> tf = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
+		auto a = tf->AsArray();
 		for (FTransform& x : t.Value)
 		{
+			TSharedPtr<FJsonObject> tfObj = MakeShareable(new FJsonObject());
+			FVector Loc = x.GetLocation();
+			FRotator Rot = x.Rotator();
+			tfObj->SetNumberField(TEXT("x"), Loc.X);
+			tfObj->SetNumberField(TEXT("y"), Loc.Y);
+			tfObj->SetNumberField(TEXT("z"), Loc.Z);
+			tfObj->SetNumberField(TEXT("rol"), Rot.Roll);
+			tfObj->SetNumberField(TEXT("pit"), Rot.Pitch);
+			tfObj->SetNumberField(TEXT("yaw"), Rot.Yaw);
 			// AActor* d = Dice[i];
 			/**
 			 *   R   P   Y
@@ -100,37 +98,80 @@ void AMyActor::StopRecord()
 			// 	UE_LOG(LogClass, Log, TEXT("%s: 1"), *d->GetName());
 			// }
 			// UE_LOG(LogClass, Log, TEXT("%s - %s"), *d->GetName(), *d->GetActorRotation().ToString());
+			a.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(tfObj))));
 		}
-		v += "]}";
-		if (i != 4)
-		{
-			v += ',';
-		}
-		Output.Emplace(MoveTemp(v));
+		o->SetArrayField(TEXT("tf"), MoveTemp(a));
+		r.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(o))));
 	}
-	//Output.Emplace(TEXT("}"));
-	//FFileHelper::SaveStringArrayToFile(Output, *(FPaths::ProjectDir() / FileName + TEXT(".json")));
+	FJsonSerializer::Serialize(r, Writer);
+	Writer->Close();
+	delete WriterArchive;
 }
 
 void AMyActor::PlayRecord()
 {
-
+	bPlaying = true;
+	Elapsed = 0.f;
+	FArchive* ReaderArchive = IFileManager::Get().CreateFileReader(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
+	auto JsonReader = TJsonReader<TCHAR>::Create(ReaderArchive);
+	TSharedPtr<FJsonValue> JsonValue = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
+	FJsonSerializer::Deserialize(JsonReader, JsonValue);
+	auto RootArr = JsonValue->AsArray();
+	Transforms.Empty(RootArr.Num());
+	for (auto&& Value : RootArr)
+	{
+		auto timestamp = Value->AsObject();
+		TransformType t;
+		t.Key = timestamp->GetNumberField(TEXT("time"));
+		auto& tf = timestamp->GetArrayField(TEXT("tf"));
+		for (const auto& x : tf)
+		{
+			FVector l;
+			FRotator r;
+			const auto& v = x->AsObject();
+			l.X = v->GetNumberField(TEXT("x"));
+			l.Y = v->GetNumberField(TEXT("y"));
+			l.Z = v->GetNumberField(TEXT("z"));
+			r.Roll = v->GetNumberField(TEXT("rol"));
+			r.Pitch = v->GetNumberField(TEXT("pit"));
+			r.Yaw = v->GetNumberField(TEXT("yaw"));
+			t.Value.Emplace(MoveTemp(r), MoveTemp(l), FVector{ Scale });
+		}
+		Transforms.Emplace(MoveTemp(t));
+	}
+	for (auto d : Dice)
+	{
+		Cast<UPrimitiveComponent>(d->GetRootComponent())->SetSimulatePhysics(false);
+	}
 }
 
 // Called every frame
 void AMyActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	Elapsed += DeltaTime;
 	if (bPlaying)
 	{
-
+		for (int Index = 0; Index < Transforms.Num() - 1; Index++)
+		{
+			if (Elapsed > Transforms[Index].Key)
+			{
+				continue;
+			}
+			for (int J = 0; J < Transforms[Index].Value.Num(); J++)
+			{
+				FTransform v;
+				v.Blend(Transforms[Index].Value[J], Transforms[Index + 1].Value[J], (Elapsed - Transforms[Index].Key) / (Transforms[Index + 1].Key - Transforms[Index].Key));
+				Dice[J]->SetActorTransform(v);
+			}
+			break;
+		}
 		return;
 	}
 	if (!bStarted)
 	{
 		return;
 	}
-	Elapsed += DeltaTime;
 
 	TArray<FTransform> v;
 	for (AActor* d : Dice)

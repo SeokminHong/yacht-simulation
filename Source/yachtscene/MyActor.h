@@ -32,10 +32,14 @@ protected:
 	UPROPERTY(EditAnywhere)
 	FString FileName;
 
+	UPROPERTY(EditAnywhere)
+	float Scale;
+
 	using TransformType = TPair<float, TArray<FTransform>>;
 	TArray<TransformType> Transforms;
 
 	float Elapsed = 0.f;
+	
 
 public:	
 	// Called every frame
