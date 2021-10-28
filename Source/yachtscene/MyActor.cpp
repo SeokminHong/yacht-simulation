@@ -39,6 +39,42 @@ void AMyActor::StartRecord()
 void AMyActor::StopRecord()
 {
 	bStarted = false;
+
+	TArray<FRotator> Offsets;
+	for (auto* d : Dice)
+	{
+		FRotator Rot = d->GetActorRotation();
+		if (FMath::IsNearlyEqual(Rot.Roll, -90.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
+		{
+			Offsets.Emplace(FRotator{ 0.f, 0.f, -90.f }.GetInverse());
+			//UE_LOG(LogClass, Log, TEXT("%s: 2"), *d->GetName());
+		}
+		else if (FMath::IsNearlyEqual(Rot.Pitch, 90.f, 5.f))
+		{
+			Offsets.Emplace(FRotator{ 90.f, 0.f, 0.f }.GetInverse());
+			//UE_LOG(LogClass, Log, TEXT("%s: 3"), *d->GetName());
+		}
+		else if (FMath::IsNearlyEqual(Rot.Pitch, -90.f, 5.f))
+		{
+			Offsets.Emplace(FRotator{ -90.f, 0.f, 0.f }.GetInverse());
+			//UE_LOG(LogClass, Log, TEXT("%s: 4"), *d->GetName());
+		}
+		else if (FMath::IsNearlyEqual(Rot.Roll, 90.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
+		{
+			Offsets.Emplace(FRotator{ 0.f, 0.f, 90.f }.GetInverse());
+			//UE_LOG(LogClass, Log, TEXT("%s: 5"), *d->GetName());
+		}
+		else if (FMath::IsNearlyEqual(FMath::Abs(Rot.Roll), 180.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
+		{
+			Offsets.Emplace(FRotator{ 0.f, 0.f, 180.f }.GetInverse());
+			//UE_LOG(LogClass, Log, TEXT("%s: 6"), *d->GetName());
+		}
+		else
+		{
+			Offsets.Emplace(FRotator::ZeroRotator);
+		}
+	}
+
 	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
 	auto Writer = TJsonWriter<TCHAR>::Create(WriterArchive);
 	TSharedPtr<FJsonValueArray> root = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
@@ -51,11 +87,12 @@ void AMyActor::StopRecord()
 		o->SetNumberField(TEXT("time"), t.Key);
 		TSharedPtr<FJsonValueArray> tf = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
 		auto a = tf->AsArray();
+		int i = 0;
 		for (FTransform& x : t.Value)
 		{
 			TSharedPtr<FJsonObject> tfObj = MakeShareable(new FJsonObject());
 			FVector Loc = x.GetLocation();
-			FRotator Rot = x.Rotator();
+			FRotator Rot = (Offsets[i].Quaternion() * x.GetRotation()).Rotator();
 			tfObj->SetNumberField(TEXT("x"), Loc.X);
 			tfObj->SetNumberField(TEXT("y"), Loc.Y);
 			tfObj->SetNumberField(TEXT("z"), Loc.Z);
@@ -72,33 +109,10 @@ void AMyActor::StopRecord()
 			 *  90   0   x => 5
 			 * 180   0   x => 6
 			 */
-			// FRotator Rot = d->GetActorRotation();
-			// if (FMath::IsNearlyEqual(Rot.Roll, -90.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
-			// {
-			// 	UE_LOG(LogClass, Log, TEXT("%s: 2"), *d->GetName());
-			// }
-			// else if (FMath::IsNearlyEqual(Rot.Pitch, 90.f, 5.f))
-			// {
-			// 	UE_LOG(LogClass, Log, TEXT("%s: 3"), *d->GetName());
-			// }
-			// else if (FMath::IsNearlyEqual(Rot.Pitch, -90.f, 5.f))
-			// {
-			// 	UE_LOG(LogClass, Log, TEXT("%s: 4"), *d->GetName());
-			// }
-			// else if (FMath::IsNearlyEqual(Rot.Roll, 90.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
-			// {
-			// 	UE_LOG(LogClass, Log, TEXT("%s: 5"), *d->GetName());
-			// }
-			// else if (FMath::IsNearlyEqual(FMath::Abs(Rot.Roll), 180.f, 5.f) && FMath::IsNearlyEqual(Rot.Pitch, 0.f, 5.f))
-			// {
-			// 	UE_LOG(LogClass, Log, TEXT("%s: 6"), *d->GetName());
-			// }
-			// else
-			// {
-			// 	UE_LOG(LogClass, Log, TEXT("%s: 1"), *d->GetName());
-			// }
+			
 			// UE_LOG(LogClass, Log, TEXT("%s - %s"), *d->GetName(), *d->GetActorRotation().ToString());
 			a.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(tfObj))));
+			i++;
 		}
 		o->SetArrayField(TEXT("tf"), MoveTemp(a));
 		r.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(o))));
