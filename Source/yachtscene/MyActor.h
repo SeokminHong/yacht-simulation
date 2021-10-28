@@ -29,14 +29,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<AActor*> Dice;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<int> Eyes{ 1, 1, 1, 1, 1 };
+
 	UPROPERTY(EditAnywhere)
 	FString FileName;
 
 	UPROPERTY(EditAnywhere)
 	float Scale;
 
-	using TransformType = TPair<float, TArray<FTransform>>;
-	TArray<TransformType> Transforms;
+	using FTimestampType = TPair<float, TArray<FTransform>>;
+	TArray<FTimestampType> Timestamps;
 
 	float Elapsed = 0.f;
 	

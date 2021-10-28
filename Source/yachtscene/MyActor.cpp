@@ -23,7 +23,7 @@ void AMyActor::StartRecord()
 	{
 		return;
 	}
-	Transforms.Reset();
+	Timestamps.Reset();
 	Elapsed = 0.f;
 	TArray<FTransform> v;
 	for (AActor* d : Dice)
@@ -31,63 +31,91 @@ void AMyActor::StartRecord()
 		Cast<UPrimitiveComponent>(d->GetRootComponent())->SetSimulatePhysics(true);
 		v.Emplace(d->GetActorTransform());
 	}
-	Transforms.Emplace(Elapsed, MoveTemp(v));
+	Timestamps.Emplace(Elapsed, MoveTemp(v));
 	bStarted = true;
 	bPlaying = false;
+}
+
+TSharedPtr<FJsonValue> QuatToJson(FQuat Rot)
+{
+	TSharedPtr<FJsonObject> RotObj = MakeShareable(new FJsonObject());
+	RotObj->SetNumberField(TEXT("qx"), Rot.X);
+	RotObj->SetNumberField(TEXT("qy"), Rot.Y);
+	RotObj->SetNumberField(TEXT("qz"), Rot.Z);
+	RotObj->SetNumberField(TEXT("qw"), Rot.W);
+	return TSharedPtr<FJsonValue>(new FJsonValueObject(MoveTemp(RotObj)));
 }
 
 void AMyActor::StopRecord()
 {
 	bStarted = false;
 
-	/**
-	 *   R   P
-	 *   0   0 => 1
-	 * -90   0 => 2
-	 *   x  90 => 3
-	 *   x -90 => 4
-	 *  90   0 => 5
-	 * 180   0 => 6
-	 */
+	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
+	auto Writer = TJsonWriter<TCHAR>::Create(WriterArchive);
+
+	TSharedPtr<FJsonObject> Root = MakeShareable(new FJsonObject());
+	TArray<TSharedPtr<FJsonValue>> OffsetArray;
+
 	TArray<FQuat> Offsets;
 	for (auto* d : Dice)
 	{
 		FRotator Rot = d->GetActorRotation();
-		Offsets.Emplace(FRotator{ 0.f, Rot.Yaw, 0.f }.Quaternion() * Rot.Quaternion().Inverse());
-	}
+		FQuat Normalized = FRotator{ 0.f, Rot.Yaw, 0.f }.Quaternion();
+		Offsets.Emplace(Normalized * Rot.Quaternion().Inverse());
 
-	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
-	auto Writer = TJsonWriter<TCHAR>::Create(WriterArchive);
-	TSharedPtr<FJsonValueArray> root = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
-	auto r = root->AsArray();
+		TArray<TSharedPtr<FJsonValue>> OffsetValueArray;
+		/**
+		 *   R   P
+		 *   0   0 => 1
+		 * -90   0 => 2
+		 *   x  90 => 3
+		 *   x -90 => 4
+		 *  90   0 => 5
+		 * 180   0 => 6
+		 */
+		OffsetValueArray.Append({
+			QuatToJson(FQuat::Identity),
+			QuatToJson(FRotator{ 0.f, Rot.Yaw, -90.f }.Quaternion() * Normalized.Inverse()),
+			QuatToJson(FRotator{ 90.f, Rot.Yaw, Rot.Roll }.Quaternion() * Normalized.Inverse()),
+			QuatToJson(FRotator{ -90.f, Rot.Yaw, Rot.Roll }.Quaternion() * Normalized.Inverse()),
+			QuatToJson(FRotator{ 0.f, Rot.Yaw, 90.f }.Quaternion() * Normalized.Inverse()),
+			QuatToJson(FRotator{ 0.f, Rot.Yaw, 180.f }.Quaternion() * Normalized.Inverse()),
+		});
+		OffsetArray.Emplace(MakeShared<FJsonValueArray>(MoveTemp(OffsetValueArray)));
+	}
+	Root->SetArrayField(TEXT("offsets"), MoveTemp(OffsetArray));
+
+	TSharedPtr<FJsonValueArray> _TimestampArray = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
+	auto TimestampArray = _TimestampArray->AsArray();
 
 	UE_LOG(LogClass, Log, TEXT("End Game!"));
-	for (TransformType& t : Transforms)
+	for (FTimestampType& Timestamp : Timestamps)
 	{
-		TSharedPtr<FJsonObject> o = MakeShareable(new FJsonObject());
-		o->SetNumberField(TEXT("time"), t.Key);
-		TSharedPtr<FJsonValueArray> tf = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
-		auto a = tf->AsArray();
+		TSharedPtr<FJsonObject> TimestampElem = MakeShareable(new FJsonObject());
+		TimestampElem->SetNumberField(TEXT("time"), Timestamp.Key);
+		TArray<TSharedPtr<FJsonValue>> TransformArray;
 		int i = 0;
-		for (FTransform& x : t.Value)
+		for (FTransform& Transform : Timestamp.Value)
 		{
 			TSharedPtr<FJsonObject> tfObj = MakeShareable(new FJsonObject());
-			FVector Loc = x.GetLocation();
-			FRotator Rot = (Offsets[i] * x.GetRotation()).Rotator();
+			FVector Loc = Transform.GetLocation();
+			FQuat Rot = (Offsets[i] * Transform.GetRotation());
 			tfObj->SetNumberField(TEXT("x"), Loc.X);
 			tfObj->SetNumberField(TEXT("y"), Loc.Y);
 			tfObj->SetNumberField(TEXT("z"), Loc.Z);
-			tfObj->SetNumberField(TEXT("rol"), Rot.Roll);
-			tfObj->SetNumberField(TEXT("pit"), Rot.Pitch);
-			tfObj->SetNumberField(TEXT("yaw"), Rot.Yaw);
+			tfObj->SetNumberField(TEXT("qx"), Rot.X);
+			tfObj->SetNumberField(TEXT("qy"), Rot.Y);
+			tfObj->SetNumberField(TEXT("qz"), Rot.Z);
+			tfObj->SetNumberField(TEXT("qw"), Rot.W);
 			
-			a.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(tfObj))));
+			TransformArray.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(tfObj))));
 			i++;
 		}
-		o->SetArrayField(TEXT("tf"), MoveTemp(a));
-		r.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(o))));
+		TimestampElem->SetArrayField(TEXT("tf"), MoveTemp(TransformArray));
+		TimestampArray.Emplace(MakeShareable(new FJsonValueObject(MoveTemp(TimestampElem))));
 	}
-	FJsonSerializer::Serialize(r, Writer);
+	Root->SetArrayField(TEXT("timestamps"), MoveTemp(TimestampArray));
+	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
 	Writer->Close();
 	delete WriterArchive;
 }
@@ -100,28 +128,52 @@ void AMyActor::PlayRecord()
 	auto JsonReader = TJsonReader<TCHAR>::Create(ReaderArchive);
 	TSharedPtr<FJsonValue> JsonValue = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
 	FJsonSerializer::Deserialize(JsonReader, JsonValue);
-	auto RootArr = JsonValue->AsArray();
-	Transforms.Empty(RootArr.Num());
-	for (auto&& Value : RootArr)
+	auto RootObj = JsonValue->AsObject();
+
+	auto OffsetArray = RootObj->GetArrayField(TEXT("offsets"));
+	TArray<TArray<FQuat>> Offsets;
+	for (const auto& o : OffsetArray)
 	{
-		auto timestamp = Value->AsObject();
-		TransformType t;
+		auto v = o->AsArray();
+		TArray<FQuat> arr;
+		for (const auto& q : v)
+		{
+			FQuat rot;
+			auto rotObj = q->AsObject();
+			rot.X = rotObj->GetNumberField(TEXT("qx"));
+			rot.Y = rotObj->GetNumberField(TEXT("qy"));
+			rot.Z = rotObj->GetNumberField(TEXT("qz"));
+			rot.W = rotObj->GetNumberField(TEXT("qw"));
+			arr.Emplace(MoveTemp(rot));
+		}
+		Offsets.Emplace(MoveTemp(arr));
+	}
+
+	auto TimestampArray = RootObj->GetArrayField(TEXT("timestamps"));
+	Timestamps.Empty(TimestampArray.Num());
+	for (auto&& Timestamp : TimestampArray)
+	{
+		auto timestamp = Timestamp->AsObject();
+		FTimestampType t;
 		t.Key = timestamp->GetNumberField(TEXT("time"));
 		auto& tf = timestamp->GetArrayField(TEXT("tf"));
+		int i = 0;
 		for (const auto& x : tf)
 		{
 			FVector l;
-			FRotator r;
+			FQuat r;
 			const auto& v = x->AsObject();
 			l.X = v->GetNumberField(TEXT("x"));
 			l.Y = v->GetNumberField(TEXT("y"));
 			l.Z = v->GetNumberField(TEXT("z"));
-			r.Roll = v->GetNumberField(TEXT("rol"));
-			r.Pitch = v->GetNumberField(TEXT("pit"));
-			r.Yaw = v->GetNumberField(TEXT("yaw"));
-			t.Value.Emplace(MoveTemp(r), MoveTemp(l), FVector{ Scale });
+			r.X = v->GetNumberField(TEXT("qx"));
+			r.Y = v->GetNumberField(TEXT("qy"));
+			r.Z = v->GetNumberField(TEXT("qz"));
+			r.W = v->GetNumberField(TEXT("qw"));
+			t.Value.Emplace(Offsets[i][Eyes[i] - 1] * MoveTemp(r), MoveTemp(l), FVector{ Scale });
+			i++;
 		}
-		Transforms.Emplace(MoveTemp(t));
+		Timestamps.Emplace(MoveTemp(t));
 	}
 	for (auto d : Dice)
 	{
@@ -137,16 +189,16 @@ void AMyActor::Tick(float DeltaTime)
 	Elapsed += DeltaTime;
 	if (bPlaying)
 	{
-		for (int Index = 0; Index < Transforms.Num() - 1; Index++)
+		for (int Index = 0; Index < Timestamps.Num() - 1; Index++)
 		{
-			if (Elapsed > Transforms[Index].Key)
+			if (Elapsed > Timestamps[Index].Key)
 			{
 				continue;
 			}
-			for (int J = 0; J < Transforms[Index].Value.Num(); J++)
+			for (int J = 0; J < Timestamps[Index].Value.Num(); J++)
 			{
 				FTransform v;
-				v.Blend(Transforms[Index].Value[J], Transforms[Index + 1].Value[J], (Elapsed - Transforms[Index].Key) / (Transforms[Index + 1].Key - Transforms[Index].Key));
+				v.Blend(Timestamps[Index].Value[J], Timestamps[Index + 1].Value[J], (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key));
 				Dice[J]->SetActorTransform(v);
 			}
 			break;
@@ -163,6 +215,6 @@ void AMyActor::Tick(float DeltaTime)
 	{
 		v.Emplace(d->GetActorTransform());
 	}
-	Transforms.Emplace(Elapsed, MoveTemp(v));
+	Timestamps.Emplace(Elapsed, MoveTemp(v));
 }
 
