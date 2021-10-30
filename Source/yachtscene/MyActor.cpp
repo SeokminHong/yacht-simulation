@@ -51,7 +51,7 @@ void AMyActor::StopRecord()
 	bStarted = false;
 
 	FArchive* WriterArchive = IFileManager::Get().CreateFileWriter(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
-	auto Writer = TJsonWriter<TCHAR>::Create(WriterArchive);
+	auto Writer = TJsonWriter<ANSICHAR>::Create(WriterArchive);
 
 	TSharedPtr<FJsonObject> Root = MakeShareable(new FJsonObject());
 	TArray<TSharedPtr<FJsonValue>> OffsetArray;
@@ -100,9 +100,12 @@ void AMyActor::StopRecord()
 			TSharedPtr<FJsonObject> tfObj = MakeShareable(new FJsonObject());
 			FVector Loc = Transform.GetLocation();
 			FQuat Rot = (Offsets[i] * Transform.GetRotation());
-			tfObj->SetNumberField(TEXT("x"), Loc.X);
-			tfObj->SetNumberField(TEXT("y"), Loc.Y);
-			tfObj->SetNumberField(TEXT("z"), Loc.Z);
+			FRotator _r = Rot.Rotator();
+			_r.Yaw = -_r.Yaw;
+			Rot = _r.Quaternion();
+			tfObj->SetNumberField(TEXT("x"), Loc.X / 25.f);
+			tfObj->SetNumberField(TEXT("y"), Loc.Y / 25.f);
+			tfObj->SetNumberField(TEXT("z"), Loc.Z / 25.f);
 			tfObj->SetNumberField(TEXT("qx"), Rot.X);
 			tfObj->SetNumberField(TEXT("qy"), Rot.Y);
 			tfObj->SetNumberField(TEXT("qz"), Rot.Z);
@@ -125,7 +128,7 @@ void AMyActor::PlayRecord()
 	bPlaying = true;
 	Elapsed = 0.f;
 	FArchive* ReaderArchive = IFileManager::Get().CreateFileReader(*(FPaths::ProjectDir() / FileName + TEXT(".json")));
-	auto JsonReader = TJsonReader<TCHAR>::Create(ReaderArchive);
+	auto JsonReader = TJsonReader<ANSICHAR>::Create(ReaderArchive);
 	TSharedPtr<FJsonValue> JsonValue = MakeShareable(new FJsonValueArray(TArray<TSharedPtr<FJsonValue>>()));
 	FJsonSerializer::Deserialize(JsonReader, JsonValue);
 	auto RootObj = JsonValue->AsObject();
@@ -163,9 +166,9 @@ void AMyActor::PlayRecord()
 			FVector l;
 			FQuat r;
 			const auto& v = x->AsObject();
-			l.X = v->GetNumberField(TEXT("x"));
-			l.Y = v->GetNumberField(TEXT("y"));
-			l.Z = v->GetNumberField(TEXT("z"));
+			l.X = v->GetNumberField(TEXT("x")) * -25.f;
+			l.Y = v->GetNumberField(TEXT("y")) * 25.f;
+			l.Z = v->GetNumberField(TEXT("z")) * 25.f;
 			r.X = v->GetNumberField(TEXT("qx"));
 			r.Y = v->GetNumberField(TEXT("qy"));
 			r.Z = v->GetNumberField(TEXT("qz"));
@@ -197,9 +200,13 @@ void AMyActor::Tick(float DeltaTime)
 			}
 			for (int J = 0; J < Timestamps[Index].Value.Num(); J++)
 			{
-				FTransform v;
-				v.Blend(Timestamps[Index].Value[J], Timestamps[Index + 1].Value[J], (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key));
-				Dice[J]->SetActorTransform(v);
+				FTransform t1 = Timestamps[Index].Value[J];
+				FTransform t2 = Timestamps[Index + 1].Value[J];
+				float Alpha = (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key);
+				const FRotator DeltaAngle = t2.Rotator() - t1.Rotator();
+				FTransform v{ FQuat(t1.Rotator() + Alpha * DeltaAngle), FMath::Lerp(t1.GetLocation(), t2.GetLocation(), Alpha), FVector{ Scale } };
+				//v.Blend(Timestamps[Index].Value[J], Timestamps[Index + 1].Value[J], (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key));
+				Dice[J]->SetActorTransform(MoveTemp(v));
 			}
 			break;
 		}
