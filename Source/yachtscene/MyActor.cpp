@@ -166,7 +166,7 @@ void AMyActor::PlayRecord()
 			FVector l;
 			FQuat r;
 			const auto& v = x->AsObject();
-			l.X = v->GetNumberField(TEXT("x")) * -25.f;
+			l.X = v->GetNumberField(TEXT("x")) * 25.f;
 			l.Y = v->GetNumberField(TEXT("y")) * 25.f;
 			l.Z = v->GetNumberField(TEXT("z")) * 25.f;
 			r.X = v->GetNumberField(TEXT("qx"));
@@ -200,13 +200,14 @@ void AMyActor::Tick(float DeltaTime)
 			}
 			for (int J = 0; J < Timestamps[Index].Value.Num(); J++)
 			{
-				FTransform t1 = Timestamps[Index].Value[J];
-				FTransform t2 = Timestamps[Index + 1].Value[J];
-				float Alpha = (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key);
-				const FRotator DeltaAngle = t2.Rotator() - t1.Rotator();
-				FTransform v{ FQuat(t1.Rotator() + Alpha * DeltaAngle), FMath::Lerp(t1.GetLocation(), t2.GetLocation(), Alpha), FVector{ Scale } };
+				//FTransform t1 = Timestamps[Index].Value[J];
+				//FTransform t2 = Timestamps[Index + 1].Value[J];
+				//float Alpha = (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key);
+				//const FRotator DeltaAngle = t2.Rotator() - t1.Rotator();
+				//FTransform v{ FQuat(t1.Rotator() + Alpha * DeltaAngle), FMath::Lerp(t1.GetLocation(), t2.GetLocation(), Alpha), FVector{ Scale } };
 				//v.Blend(Timestamps[Index].Value[J], Timestamps[Index + 1].Value[J], (Elapsed - Timestamps[Index].Key) / (Timestamps[Index + 1].Key - Timestamps[Index].Key));
-				Dice[J]->SetActorTransform(MoveTemp(v));
+				//Dice[J]->SetActorTransform(MoveTemp(v));
+				Dice[J]->SetActorTransform(Timestamps[Index].Value[J]);
 			}
 			break;
 		}
